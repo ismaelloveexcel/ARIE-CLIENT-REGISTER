@@ -173,6 +173,16 @@ def create_app(test_config=None):
         db.execute("DELETE FROM login_attempts WHERE attempt_key = ?", (attempt_key,))
         db.commit()
 
+    def prune_login_attempts(now=None):
+        now = int(time.time()) if now is None else now
+        retention_seconds = (
+            app.config["LOGIN_RATE_WINDOW_SECONDS"] + app.config["LOGIN_LOCKOUT_SECONDS"]
+        )
+        cutoff = now - retention_seconds
+        db = get_db()
+        db.execute("DELETE FROM login_attempts WHERE last_failed_at <= ?", (cutoff,))
+        db.commit()
+
     def get_active_lockout(attempt_key, now=None):
         now = int(time.time()) if now is None else now
         record = get_db().execute(
@@ -271,6 +281,7 @@ def create_app(test_config=None):
                 return "Invalid CSRF token", 400
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
+            prune_login_attempts()
             attempt_key = get_login_attempt_key(username)
             if get_active_lockout(attempt_key):
                 flash("Too many failed login attempts. Try again later.", "error")

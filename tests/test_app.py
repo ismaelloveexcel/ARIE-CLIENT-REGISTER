@@ -1,5 +1,6 @@
 import os
 import re
+import sqlite3
 import tempfile
 import unittest
 from unittest import mock
@@ -197,6 +198,8 @@ class CRMAppTests(unittest.TestCase):
             },
             follow_redirects=False,
         )
+        self.assertEqual(create_response.status_code, 302)
+        self.assertIn("Location", create_response.headers)
         client_url = urlparse(create_response.headers["Location"]).path
         client_page = self.client.get(client_url, follow_redirects=True)
         client_csrf = self.extract_csrf_token(client_page.data)
@@ -306,6 +309,45 @@ class CRMAppTests(unittest.TestCase):
             )
             self.assertEqual(success_response.status_code, 302)
             self.assertIn("/", success_response.headers["Location"])
+
+    def test_stale_login_attempts_are_pruned_during_login(self):
+        stale_app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-secret",
+                "DATABASE": os.path.join(self.tmpdir.name, "stale-attempts.db"),
+                "ADMIN_USERNAME": "admin",
+                "ADMIN_PASSWORD": "password",
+                "LOGIN_MAX_ATTEMPTS": 5,
+                "LOGIN_RATE_WINDOW_SECONDS": 60,
+                "LOGIN_LOCKOUT_SECONDS": 60,
+            }
+        )
+        stale_client = stale_app.test_client()
+        conn = sqlite3.connect(stale_app.config["DATABASE"])
+        conn.execute(
+            """
+            INSERT INTO login_attempts (attempt_key, failure_count, first_failed_at, last_failed_at, locked_until)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("stale-key", 1, 1_699_999_000, 1_699_999_000, None),
+        )
+        conn.commit()
+        conn.close()
+
+        with mock.patch("app.time.time", return_value=1_700_000_000):
+            login_page = stale_client.get("/login")
+            csrf_token = self.extract_csrf_token(login_page.data)
+            stale_client.post(
+                "/login",
+                data={"username": "admin", "password": "wrong", "csrf_token": csrf_token},
+                follow_redirects=False,
+            )
+
+        conn = sqlite3.connect(stale_app.config["DATABASE"])
+        rows = conn.execute("SELECT attempt_key FROM login_attempts ORDER BY attempt_key").fetchall()
+        conn.close()
+        self.assertNotIn(("stale-key",), rows)
 
     def test_admin_password_rotation_updates_existing_admin_user(self):
         create_app(
