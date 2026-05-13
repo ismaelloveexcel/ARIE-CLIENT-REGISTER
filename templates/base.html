@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ARIE Client Register</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; color: #1f2937; }
+      nav { background: #0f172a; color: white; padding: 0.8rem 1.2rem; display: flex; gap: 1rem; align-items: center; }
+      nav a { color: #e2e8f0; text-decoration: none; font-weight: 600; }
+      nav .spacer { flex: 1; }
+      .container { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; }
+      .card { background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 0.8rem; }
+      .stat { background: #e2e8f0; border-radius: 6px; padding: 0.8rem; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 0.6rem; border-bottom: 1px solid #e5e7eb; text-align: left; }
+      input, select, textarea, button { padding: 0.5rem; margin: 0.2rem 0; }
+      form.inline { display: inline; }
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      .error { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    {% if session.user_id %}
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('clients_list') }}">Clients</a>
+      <a href="{{ url_for('create_client') }}">Add record</a>
+      <span class="spacer"></span>
+      <span>{{ session.username }}</span>
+      <form method="post" action="{{ url_for('logout') }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Logout</button>
+      </form>
+    </nav>
+    {% endif %}
+    <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="card {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>
