@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import secrets
 from datetime import date
 from functools import wraps
 
@@ -23,6 +24,7 @@ def create_app(test_config=None):
         ADMIN_PASSWORD=os.environ.get("CRM_ADMIN_PASSWORD", INSECURE_ADMIN_PASSWORD),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=os.environ.get("CRM_SESSION_COOKIE_SECURE", "1") == "1",
     )
 
     if test_config:
@@ -33,6 +35,8 @@ def create_app(test_config=None):
             raise RuntimeError("CRM_SECRET_KEY must be set to a strong secret key.")
         if app.config["ADMIN_PASSWORD"] == INSECURE_ADMIN_PASSWORD:
             raise RuntimeError("CRM_ADMIN_PASSWORD must be set to a strong admin password.")
+    else:
+        app.config["SESSION_COOKIE_SECURE"] = False
 
     os.makedirs(app.instance_path, exist_ok=True)
 
@@ -106,11 +110,19 @@ def create_app(test_config=None):
             """
         )
 
-        existing = db.execute("SELECT id FROM users WHERE username = ?", (app.config["ADMIN_USERNAME"],)).fetchone()
+        existing = db.execute(
+            "SELECT id, password_hash FROM users WHERE username = ?",
+            (app.config["ADMIN_USERNAME"],),
+        ).fetchone()
         if not existing:
             db.execute(
                 "INSERT INTO users (username, password_hash) VALUES (?, ?)",
                 (app.config["ADMIN_USERNAME"], generate_password_hash(app.config["ADMIN_PASSWORD"])),
+            )
+        elif not check_password_hash(existing["password_hash"], app.config["ADMIN_PASSWORD"]):
+            db.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (generate_password_hash(app.config["ADMIN_PASSWORD"]), existing["id"]),
             )
         db.commit()
 
@@ -134,9 +146,36 @@ def create_app(test_config=None):
 
         return wrapped
 
+    def get_csrf_token():
+        token = session.get("csrf_token")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["csrf_token"] = token
+        return token
+
+    def validate_csrf():
+        form_token = request.form.get("csrf_token", "")
+        session_token = session.get("csrf_token", "")
+        return bool(form_token and session_token and secrets.compare_digest(form_token, session_token))
+
+    def csrf_protect(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if request.method == "POST" and not validate_csrf():
+                return "Invalid CSRF token", 400
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    @app.context_processor
+    def inject_csrf_token():
+        return {"csrf_token": get_csrf_token()}
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
+            if not validate_csrf():
+                return "Invalid CSRF token", 400
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
@@ -149,8 +188,9 @@ def create_app(test_config=None):
                 return redirect(url_for("dashboard"))
         return render_template("login.html")
 
-    @app.route("/logout")
+    @app.route("/logout", methods=["POST"])
     @login_required
+    @csrf_protect
     def logout():
         session.clear()
         return redirect(url_for("login"))
@@ -221,6 +261,7 @@ def create_app(test_config=None):
 
     @app.route("/clients/new", methods=["GET", "POST"])
     @login_required
+    @csrf_protect
     def create_client():
         if request.method == "POST":
             name = request.form.get("name", "").strip()
@@ -228,6 +269,9 @@ def create_app(test_config=None):
             kyc_stage = request.form.get("kyc_stage", DEFAULT_KYC_STAGE).strip() or DEFAULT_KYC_STAGE
             document_status = request.form.get("document_status", DEFAULT_DOC_STATUS).strip() or DEFAULT_DOC_STATUS
             kind = request.form.get("kind", "lead")
+            if kind not in {"lead", "client"}:
+                flash("Type must be either lead or client", "error")
+                return render_template("client_form.html")
             is_lead = 1 if kind == "lead" else 0
 
             if not name:
@@ -284,6 +328,7 @@ def create_app(test_config=None):
 
     @app.route("/clients/<int:client_id>/edit", methods=["POST"])
     @login_required
+    @csrf_protect
     def update_client(client_id):
         db = get_db()
         client = db.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
@@ -300,6 +345,9 @@ def create_app(test_config=None):
             or client["document_status"]
         )
         kind = request.form.get("kind", "lead")
+        if kind not in {"lead", "client"}:
+            flash("Type must be either lead or client", "error")
+            return redirect(url_for("client_detail", client_id=client_id))
         is_lead = 1 if kind == "lead" else 0
 
         if not name:
@@ -320,6 +368,7 @@ def create_app(test_config=None):
 
     @app.route("/clients/<int:client_id>/contacts", methods=["POST"])
     @login_required
+    @csrf_protect
     def add_contact(client_id):
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").strip()
@@ -331,6 +380,9 @@ def create_app(test_config=None):
             return redirect(url_for("client_detail", client_id=client_id))
 
         db = get_db()
+        client = db.execute("SELECT id FROM clients WHERE id = ?", (client_id,)).fetchone()
+        if not client:
+            return "Not found", 404
         db.execute(
             "INSERT INTO contacts (client_id, name, email, phone, role) VALUES (?, ?, ?, ?, ?)",
             (client_id, name, email, phone, role),
@@ -341,6 +393,7 @@ def create_app(test_config=None):
 
     @app.route("/clients/<int:client_id>/notes", methods=["POST"])
     @login_required
+    @csrf_protect
     def add_note(client_id):
         content = request.form.get("content", "").strip()
         follow_up_date = request.form.get("follow_up_date", "").strip() or None
@@ -351,6 +404,9 @@ def create_app(test_config=None):
             return redirect(url_for("client_detail", client_id=client_id))
 
         db = get_db()
+        client = db.execute("SELECT id FROM clients WHERE id = ?", (client_id,)).fetchone()
+        if not client:
+            return "Not found", 404
         db.execute(
             "INSERT INTO notes (client_id, content, follow_up_date, done) VALUES (?, ?, ?, ?)",
             (client_id, content, follow_up_date, done),
@@ -361,6 +417,7 @@ def create_app(test_config=None):
 
     @app.route("/clients/<int:client_id>/notes/<int:note_id>/toggle", methods=["POST"])
     @login_required
+    @csrf_protect
     def toggle_note(client_id, note_id):
         db = get_db()
         note = db.execute("SELECT done FROM notes WHERE id = ? AND client_id = ?", (note_id, client_id)).fetchone()

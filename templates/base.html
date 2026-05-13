@@ -29,7 +29,10 @@
       <a href="{{ url_for('create_client') }}">Add record</a>
       <span class="spacer"></span>
       <span>{{ session.username }}</span>
-      <a href="{{ url_for('logout') }}">Logout</a>
+      <form method="post" action="{{ url_for('logout') }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Logout</button>
+      </form>
     </nav>
     {% endif %}
     <main class="container">

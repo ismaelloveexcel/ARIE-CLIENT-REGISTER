@@ -5,6 +5,7 @@
 <div class="card">
   <h2>Pipeline & Onboarding</h2>
   <form method="post" action="{{ url_for('update_client', client_id=client.id) }}" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input name="name" value="{{ client.name }}" required>
     <input name="status" value="{{ client.status }}" placeholder="Lead/client status">
     <input name="kyc_stage" value="{{ client.kyc_stage }}" placeholder="KYC stage">
@@ -28,6 +29,7 @@
     {% endfor %}
   </table>
   <form method="post" action="{{ url_for('add_contact', client_id=client.id) }}" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input name="name" placeholder="Name" required>
     <input name="role" placeholder="Role">
     <input name="email" type="email" placeholder="Email">
@@ -47,6 +49,7 @@
       <td>{{ 'Done' if note.done else 'Open' }}</td>
       <td>
         <form method="post" class="inline" action="{{ url_for('toggle_note', client_id=client.id, note_id=note.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit">Mark {{ 'Open' if note.done else 'Done' }}</button>
         </form>
       </td>
@@ -56,6 +59,7 @@
     {% endfor %}
   </table>
   <form method="post" action="{{ url_for('add_note', client_id=client.id) }}" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input name="content" placeholder="Follow-up note/task" required>
     <input name="follow_up_date" type="date">
     <label><input type="checkbox" name="done"> Done</label>
