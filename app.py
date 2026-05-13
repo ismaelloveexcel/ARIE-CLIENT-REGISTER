@@ -10,21 +10,29 @@ from werkzeug.security import check_password_hash, generate_password_hash
 DEFAULT_STATUS = "lead"
 DEFAULT_KYC_STAGE = "not_started"
 DEFAULT_DOC_STATUS = "not_started"
+INSECURE_SECRET_KEY = "dev-change-me"
+INSECURE_ADMIN_PASSWORD = "ChangeMe123!"
 
 
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
-        SECRET_KEY=os.environ.get("CRM_SECRET_KEY", "dev-change-me"),
+        SECRET_KEY=os.environ.get("CRM_SECRET_KEY", INSECURE_SECRET_KEY),
         DATABASE=os.path.join(app.instance_path, "crm.db"),
         ADMIN_USERNAME=os.environ.get("CRM_ADMIN_USERNAME", "admin"),
-        ADMIN_PASSWORD=os.environ.get("CRM_ADMIN_PASSWORD", "ChangeMe123!"),
+        ADMIN_PASSWORD=os.environ.get("CRM_ADMIN_PASSWORD", INSECURE_ADMIN_PASSWORD),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
     )
 
     if test_config:
         app.config.update(test_config)
+
+    if not app.config.get("TESTING"):
+        if app.config["SECRET_KEY"] == INSECURE_SECRET_KEY:
+            raise RuntimeError("CRM_SECRET_KEY must be set to a strong secret key.")
+        if app.config["ADMIN_PASSWORD"] == INSECURE_ADMIN_PASSWORD:
+            raise RuntimeError("CRM_ADMIN_PASSWORD must be set to a strong admin password.")
 
     os.makedirs(app.instance_path, exist_ok=True)
 
@@ -284,8 +292,13 @@ def create_app(test_config=None):
 
         name = request.form.get("name", "").strip()
         status = request.form.get("status", client["status"]).strip() or client["status"]
-        kyc_stage = request.form.get("kyc_stage", client["kyc_stage"]).strip() or client["kyc_stage"]
-        document_status = request.form.get("document_status", client["document_status"]).strip() or client["document_status"]
+        kyc_stage = (
+            request.form.get("kyc_stage", client["kyc_stage"]).strip() or client["kyc_stage"]
+        )
+        document_status = (
+            request.form.get("document_status", client["document_status"]).strip()
+            or client["document_status"]
+        )
         kind = request.form.get("kind", "lead")
         is_lead = 1 if kind == "lead" else 0
 
@@ -362,8 +375,6 @@ def create_app(test_config=None):
     return app
 
 
-app = create_app()
-
-
 if __name__ == "__main__":
+    app = create_app()
     app.run(debug=False)

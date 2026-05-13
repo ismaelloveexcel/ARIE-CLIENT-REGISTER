@@ -30,7 +30,7 @@ CRM_ADMIN_USERNAME=admin CRM_ADMIN_PASSWORD='strong-password' CRM_SECRET_KEY='re
 
 Then open: `http://127.0.0.1:5000/login`
 
-> For private/internal use, set strong values for `CRM_ADMIN_PASSWORD` and `CRM_SECRET_KEY`.
+`CRM_ADMIN_PASSWORD` and `CRM_SECRET_KEY` are required at runtime (except in tests) and must be set to strong values.
 
 ## Tests
 
