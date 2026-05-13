@@ -30,13 +30,13 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
-    if not app.config.get("TESTING"):
+    if app.config.get("TESTING"):
+        app.config["SESSION_COOKIE_SECURE"] = False
+    else:
         if app.config["SECRET_KEY"] == INSECURE_SECRET_KEY:
             raise RuntimeError("CRM_SECRET_KEY must be set to a strong secret key.")
         if app.config["ADMIN_PASSWORD"] == INSECURE_ADMIN_PASSWORD:
             raise RuntimeError("CRM_ADMIN_PASSWORD must be set to a strong admin password.")
-    else:
-        app.config["SESSION_COOKIE_SECURE"] = False
 
     os.makedirs(app.instance_path, exist_ok=True)
 
