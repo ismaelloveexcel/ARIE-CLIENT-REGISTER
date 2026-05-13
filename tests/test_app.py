@@ -255,7 +255,7 @@ class CRMAppTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 create_app()
 
-    def test_login_rate_limit_locks_out_after_repeated_failures(self):
+    def test_login_rate_limit_lockout_and_expiry(self):
         lockout_app = create_app(
             {
                 "TESTING": True,

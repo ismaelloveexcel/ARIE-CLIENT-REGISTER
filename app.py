@@ -1,3 +1,4 @@
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -165,7 +166,7 @@ def create_app(test_config=None):
     def get_login_attempt_key(username):
         normalized_username = username.strip().lower() or "<blank>"
         client_ip = request.remote_addr or "unknown"
-        return f"{normalized_username}|{client_ip}"
+        return hashlib.sha256(f"{normalized_username}\0{client_ip}".encode("utf-8")).hexdigest()
 
     def clear_login_attempt(attempt_key):
         db = get_db()
