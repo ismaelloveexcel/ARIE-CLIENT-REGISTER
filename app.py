@@ -1,6 +1,8 @@
+import hashlib
 import os
-import sqlite3
 import secrets
+import sqlite3
+import time
 from datetime import date
 from functools import wraps
 
@@ -15,6 +17,19 @@ INSECURE_SECRET_KEY = "dev-change-me"
 INSECURE_ADMIN_PASSWORD = "ChangeMe123!"
 
 
+def get_positive_int_env(name, default):
+    raw_value = os.environ.get(name)
+    if raw_value in {None, ""}:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer.") from exc
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive integer.")
+    return value
+
+
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
@@ -25,6 +40,9 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("CRM_SESSION_COOKIE_SECURE", "1") == "1",
+        LOGIN_MAX_ATTEMPTS=get_positive_int_env("CRM_LOGIN_MAX_ATTEMPTS", 5),
+        LOGIN_RATE_WINDOW_SECONDS=get_positive_int_env("CRM_LOGIN_RATE_WINDOW_SECONDS", 900),
+        LOGIN_LOCKOUT_SECONDS=get_positive_int_env("CRM_LOGIN_LOCKOUT_SECONDS", 900),
     )
 
     if test_config:
@@ -107,6 +125,14 @@ def create_app(test_config=None):
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
+
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                attempt_key TEXT PRIMARY KEY,
+                failure_count INTEGER NOT NULL,
+                first_failed_at INTEGER NOT NULL,
+                last_failed_at INTEGER NOT NULL,
+                locked_until INTEGER
+            );
             """
         )
 
@@ -136,6 +162,83 @@ def create_app(test_config=None):
             (session.get("user_id"), event_type, entity, entity_id, details),
         )
         db.commit()
+
+    def get_login_attempt_key(username):
+        normalized_username = username.strip().lower() or "<blank>"
+        client_ip = request.remote_addr or "unknown"
+        return hashlib.sha256(f"{normalized_username}\0{client_ip}".encode("utf-8")).hexdigest()
+
+    def clear_login_attempt(attempt_key):
+        db = get_db()
+        db.execute("DELETE FROM login_attempts WHERE attempt_key = ?", (attempt_key,))
+        db.commit()
+
+    def prune_login_attempts(now=None):
+        now = int(time.time()) if now is None else now
+        retention_seconds = (
+            app.config["LOGIN_RATE_WINDOW_SECONDS"] + app.config["LOGIN_LOCKOUT_SECONDS"]
+        )
+        cutoff = now - retention_seconds
+        db = get_db()
+        db.execute("DELETE FROM login_attempts WHERE last_failed_at <= ?", (cutoff,))
+        db.commit()
+
+    def get_active_lockout(attempt_key, now=None):
+        now = int(time.time()) if now is None else now
+        record = get_db().execute(
+            """
+            SELECT failure_count, first_failed_at, locked_until
+            FROM login_attempts
+            WHERE attempt_key = ?
+            """,
+            (attempt_key,),
+        ).fetchone()
+        if not record:
+            return None
+        if record["locked_until"] and record["locked_until"] > now:
+            return record["locked_until"]
+        if record["locked_until"] or now - record["first_failed_at"] >= app.config["LOGIN_RATE_WINDOW_SECONDS"]:
+            clear_login_attempt(attempt_key)
+        return None
+
+    def record_failed_login(attempt_key, now=None):
+        now = int(time.time()) if now is None else now
+        db = get_db()
+        record = db.execute(
+            """
+            SELECT failure_count, first_failed_at, locked_until
+            FROM login_attempts
+            WHERE attempt_key = ?
+            """,
+            (attempt_key,),
+        ).fetchone()
+        if record and record["locked_until"] and record["locked_until"] <= now:
+            record = None
+        if record and now - record["first_failed_at"] < app.config["LOGIN_RATE_WINDOW_SECONDS"]:
+            failure_count = record["failure_count"] + 1
+            first_failed_at = record["first_failed_at"]
+        else:
+            failure_count = 1
+            first_failed_at = now
+        locked_until = (
+            now + app.config["LOGIN_LOCKOUT_SECONDS"]
+            if failure_count >= app.config["LOGIN_MAX_ATTEMPTS"]
+            else None
+        )
+        db.execute(
+            """
+            INSERT INTO login_attempts (attempt_key, failure_count, first_failed_at, last_failed_at, locked_until)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(attempt_key) DO UPDATE SET
+                failure_count = excluded.failure_count,
+                first_failed_at = excluded.first_failed_at,
+                last_failed_at = excluded.last_failed_at,
+                locked_until = excluded.locked_until
+            """,
+            (attempt_key, failure_count, first_failed_at, now, locked_until),
+        )
+        db.commit()
+        return locked_until
 
     def login_required(view):
         @wraps(view)
@@ -178,10 +281,20 @@ def create_app(test_config=None):
                 return "Invalid CSRF token", 400
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
+            prune_login_attempts()
+            attempt_key = get_login_attempt_key(username)
+            if get_active_lockout(attempt_key):
+                flash("Too many failed login attempts. Try again later.", "error")
+                return render_template("login.html"), 429
             user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
             if not user or not check_password_hash(user["password_hash"], password):
+                locked_until = record_failed_login(attempt_key)
+                if locked_until:
+                    flash("Too many failed login attempts. Try again later.", "error")
+                    return render_template("login.html"), 429
                 flash("Invalid username or password", "error")
             else:
+                clear_login_attempt(attempt_key)
                 session.clear()
                 session["user_id"] = user["id"]
                 session["username"] = user["username"]
