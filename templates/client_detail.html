@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ client.name }}</h1>
+
+<div class="card">
+  <h2>Pipeline & Onboarding</h2>
+  <form method="post" action="{{ url_for('update_client', client_id=client.id) }}" class="row">
+    <input name="name" value="{{ client.name }}" required>
+    <input name="status" value="{{ client.status }}" placeholder="Lead/client status">
+    <input name="kyc_stage" value="{{ client.kyc_stage }}" placeholder="KYC stage">
+    <input name="document_status" value="{{ client.document_status }}" placeholder="Document checklist status">
+    <select name="kind">
+      <option value="lead" {% if client.is_lead %}selected{% endif %}>Lead</option>
+      <option value="client" {% if not client.is_lead %}selected{% endif %}>Client</option>
+    </select>
+    <button type="submit">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Contact Persons</h2>
+  <table>
+    <tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th></tr>
+    {% for contact in contacts %}
+    <tr><td>{{ contact.name }}</td><td>{{ contact.role }}</td><td>{{ contact.email }}</td><td>{{ contact.phone }}</td></tr>
+    {% else %}
+    <tr><td colspan="4">No contacts yet</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('add_contact', client_id=client.id) }}" class="row">
+    <input name="name" placeholder="Name" required>
+    <input name="role" placeholder="Role">
+    <input name="email" type="email" placeholder="Email">
+    <input name="phone" placeholder="Phone">
+    <button type="submit">Add contact</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Notes & Follow-up Tasks</h2>
+  <table>
+    <tr><th>Task / Note</th><th>Follow-up</th><th>Status</th><th>Action</th></tr>
+    {% for note in notes %}
+    <tr>
+      <td>{{ note.content }}</td>
+      <td>{{ note.follow_up_date or '-' }}</td>
+      <td>{{ 'Done' if note.done else 'Open' }}</td>
+      <td>
+        <form method="post" class="inline" action="{{ url_for('toggle_note', client_id=client.id, note_id=note.id) }}">
+          <button type="submit">Mark {{ 'Open' if note.done else 'Done' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No notes/tasks yet</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('add_note', client_id=client.id) }}" class="row">
+    <input name="content" placeholder="Follow-up note/task" required>
+    <input name="follow_up_date" type="date">
+    <label><input type="checkbox" name="done"> Done</label>
+    <button type="submit">Add note/task</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Audit Activity History</h2>
+  <table>
+    <tr><th>Time</th><th>User</th><th>Event</th><th>Details</th></tr>
+    {% for item in activities %}
+    <tr>
+      <td>{{ item.created_at }}</td>
+      <td>{{ item.username or 'system' }}</td>
+      <td>{{ item.event_type }}</td>
+      <td>{{ item.details }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No activity yet</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

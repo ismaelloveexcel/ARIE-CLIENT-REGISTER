@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Client Register</h1>
+<div class="card">
+  <form method="get" class="row">
+    <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search company/client">
+    <input name="status" value="{{ request.args.get('status','') }}" placeholder="Status (e.g. active)">
+    <input name="kyc_stage" value="{{ request.args.get('kyc_stage','') }}" placeholder="KYC stage">
+    <input name="document_status" value="{{ request.args.get('document_status','') }}" placeholder="Document status">
+    <select name="kind">
+      <option value="all" {% if request.args.get('kind','all') == 'all' %}selected{% endif %}>All</option>
+      <option value="lead" {% if request.args.get('kind') == 'lead' %}selected{% endif %}>Leads</option>
+      <option value="client" {% if request.args.get('kind') == 'client' %}selected{% endif %}>Clients</option>
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Status</th>
+      <th>KYC</th>
+      <th>Documents</th>
+      <th>Updated</th>
+    </tr>
+    {% for c in clients %}
+    <tr>
+      <td><a href="{{ url_for('client_detail', client_id=c.id) }}">{{ c.name }}</a></td>
+      <td>{{ 'Lead' if c.is_lead else 'Client' }}</td>
+      <td>{{ c.status }}</td>
+      <td>{{ c.kyc_stage }}</td>
+      <td>{{ c.document_status }}</td>
+      <td>{{ c.updated_at }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No records found</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>CRM Dashboard</h1>
+<div class="grid">
+  <div class="stat"><strong>Leads</strong><br>{{ stats.leads }}</div>
+  <div class="stat"><strong>Clients</strong><br>{{ stats.clients }}</div>
+  <div class="stat"><strong>Open follow-ups</strong><br>{{ stats.open_tasks }}</div>
+  <div class="stat"><strong>Overdue follow-ups</strong><br>{{ stats.overdue_tasks }}</div>
+</div>
+
+<div class="card">
+  <h2>Status Breakdown</h2>
+  <table>
+    <tr><th>Status</th><th>Count</th></tr>
+    {% for row in status_breakdown %}
+    <tr><td>{{ row.status }}</td><td>{{ row.count }}</td></tr>
+    {% else %}
+    <tr><td colspan="2">No data yet</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Recent Activity</h2>
+  <table>
+    <tr><th>Time</th><th>User</th><th>Event</th><th>Details</th></tr>
+    {% for item in recent_activity %}
+    <tr>
+      <td>{{ item.created_at }}</td>
+      <td>{{ item.username or 'system' }}</td>
+      <td>{{ item.event_type }} {{ item.entity }}</td>
+      <td>{{ item.details }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No activity yet</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
